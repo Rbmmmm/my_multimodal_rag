@@ -40,7 +40,7 @@ def run_real_query_test():
     selector.eval()
     # --- 修正结束 ---
 
-    real_query = "A black and white photo that embodies the feeling of loneliness"
+    real_query = "Apply for Nordic Swan Ecolabel license, what is recommended as a web browser according to the Nordic Ecolabelling Portal instructions?"
     print(f"\n[待处理查询]: '{real_query}'")
     print("-" * 60)
 
