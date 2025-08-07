@@ -1,4 +1,4 @@
-# 文件路径: my_multimodal_rag/main.py (TypeError 修正版)
+# 文件路径: my_multimodal_rag/main.py (强制使用TextRetriever的调试版)
 
 import json
 import os
@@ -23,15 +23,25 @@ def main():
     
     print("\n[2] 初始化各路径检索器...")
     text_retriever = TextRetriever(node_dir="data/ViDoSeek/bge_ingestion")
-    image_retriever = ImageRetriever() # 占位符
-    table_retriever = TableRetriever() # 占位符
+    # 保持占位符的初始化，但我们下面不会把它传给 Seeker
+    image_retriever = ImageRetriever() 
+    table_retriever = TableRetriever()
     
     # --- 2. 组装智能体 ---
     print("\n[3] 组装智能体...")
     gumbel_selector = GumbelModalSelector(input_dim=1024, num_choices=3) # bge-m3 的维度是 1024
-    seeker = SeekerAgent(text_retriever, image_retriever, table_retriever)
+    
+    # --- 【调试修改】 ---
+    # 在这里，我们只将 text_retriever 传递给 SeekerAgent，
+    # 其他的设置为 None，强制它只能使用文本检索。
+    seeker = SeekerAgent(
+        text_retriever=text_retriever,
+        image_retriever=None,
+        table_retriever=None
+    )
+    
     inspector = InspectorAgent()
-    synthesizer = SynthesizerAgent(model_name="Qwen/Qwen2-1.5B-Instruct") # 使用较小的模型进行调试
+    synthesizer = SynthesizerAgent(model_name="google/flan-t5-large")
     
     # --- 3. 实例化总指挥 ---
     orchestrator = RAGOrchestrator(gumbel_selector, seeker, inspector, synthesizer)

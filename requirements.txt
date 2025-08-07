@@ -1,0 +1,16 @@
+# === 黄金版本组合 (Golden Configuration) for my_rag_env (Python 3.10) ===
+
+# 1. 核心应用库
+ragatouille
+llama-index==0.10.45
+llama-parse==0.4.9 # 兼容 llama-index 0.10.x 的版本
+
+# 2. 兼容 ColBERT 的 Transformers 版本
+transformers==4.36.2
+
+# 3. 兼容旧版 Transformers 的相关库
+peft==0.8.2
+accelerate==0.25.0
+sentence-transformers==2.7.0 # 这是一个可以和上述组合良好工作的版本
+
+llama-index-embeddings-huggingface==0.2.0

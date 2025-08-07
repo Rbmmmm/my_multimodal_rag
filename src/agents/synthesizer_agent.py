@@ -1,7 +1,7 @@
 # 文件路径: my_multimodal_rag/src/agents/synthesizer_agent.py (最终版)
 
 import torch
-from transformers import AutoModelForCausalLM, AutoTokenizer
+from transformers import AutoTokenizer, AutoModelForSeq2SeqLM
 from typing import List
 from llama_index.core.schema import BaseNode
 
@@ -15,7 +15,7 @@ class SynthesizerAgent:
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         
         self.tokenizer = AutoTokenizer.from_pretrained(model_name)
-        self.model = AutoModelForCausalLM.from_pretrained(
+        self.model = AutoModelForSeq2SeqLM.from_pretrained(
             model_name,
             torch_dtype=torch.bfloat16,
             device_map="auto"
