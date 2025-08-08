@@ -1,17 +1,14 @@
 # File: src/agents/seeker_agent.py
 from __future__ import annotations
-from typing import Optional, Dict, List, Tuple, Any
+
+from typing import Optional, Dict, List, Tuple, TYPE_CHECKING
 from llama_index.core.schema import NodeWithScore
 
-# 仅用于类型标注，实际运行时不会强制依赖
-try:
+# 仅供类型检查器使用；运行时不导入这些模块，避免循环 & 重型依赖
+if TYPE_CHECKING:
     from src.retrievers.text_retriever import TextRetriever
     from src.retrievers.image_retriever import ImageRetriever
     from src.retrievers.chart_retriever import ChartRetriever
-except Exception:
-    TextRetriever = Any  # type: ignore
-    ImageRetriever = Any  # type: ignore
-    ChartRetriever = Any  # type: ignore
 
 
 class SeekerAgent:
@@ -26,9 +23,9 @@ class SeekerAgent:
 
     def __init__(
         self,
-        text_retriever: Optional[TextRetriever] = None,
-        image_retriever: Optional[ImageRetriever] = None,
-        chart_retriever: Optional[ChartRetriever] = None,
+        text_retriever: Optional["TextRetriever"] = None,
+        image_retriever: Optional["ImageRetriever"] = None,
+        chart_retriever: Optional["ChartRetriever"] = None,
     ):
         # 同名属性（便于 Orchestrator 用 setattr 回填）
         self.text_retriever = text_retriever
