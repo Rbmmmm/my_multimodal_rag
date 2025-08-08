@@ -17,7 +17,7 @@ class QueryEmbedder:
 
         # 加载分词器和模型
         self.tokenizer = AutoTokenizer.from_pretrained(model_name, trust_remote_code=True)
-        self.model = AutoModel.from_pretrained(model_name, trust_remote_code=True).to(self.device)
+        self.model = AutoModel.from_pretrained(model_name, trust_remote_code=True, use_safetensors=True).to(self.device)
         self.model.eval()
 
         # 推一次，获取输出维度
