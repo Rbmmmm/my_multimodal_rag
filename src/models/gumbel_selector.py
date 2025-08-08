@@ -1,42 +1,86 @@
-# 文件路径: my_multimodal_rag/src/models/gumbel_selector.py
+# File: my_multimodal_rag/src/models/gumbel_selector.py
 
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from typing import Tuple
 
 class GumbelModalSelector(nn.Module):
     """
-    一个使用Gumbel-Softmax进行模态选择的决策器模块。
+    二分类模态选择器（text=0, image=1）。
+    训练：Gumbel-Softmax（可退火）；
+    推理：one-hot 选择（argmax），同时返回概率与logits。
     """
-    def __init__(self, input_dim: int, num_choices: int):
-        """
-        初始化模块。
-        
-        参数:
-            input_dim (int): 输入嵌入向量的维度 (例如: 768)。
-            num_choices (int): 可供选择的模态数量 (例如: 3，对应文本、图像、表格)。
-        """
+    def __init__(
+        self,
+        input_dim: int,
+        hidden_dim: int = 0,     # =0 表示用单层线性；>0 则用一层 MLP
+        num_choices: int = 2,    # 固定两模态：text / image
+        tau: float = 1.0,        # 训练期温度
+        dropout: float = 0.0
+    ):
         super().__init__()
-        # 定义内部的线性层，它负责从输入向量生成各个选项的“渴望分数”(logits)
-        self.classifier = nn.Linear(input_dim, num_choices)
-        
-    def forward(self, x: torch.Tensor, temperature: float = 1.0, hard: bool = True) -> torch.Tensor:
+        assert num_choices == 2, "Stage A: only support 2 choices (text=0, image=1)."
+
+        if hidden_dim and hidden_dim > 0:
+            self.classifier = nn.Sequential(
+                nn.Linear(input_dim, hidden_dim),
+                nn.ReLU(),
+                nn.Dropout(dropout),
+                nn.Linear(hidden_dim, num_choices)
+            )
+        else:
+            self.classifier = nn.Linear(input_dim, num_choices)
+
+        self.tau = tau
+        self.num_choices = num_choices
+
+        # 简单初始化（可选）
+        if isinstance(self.classifier, nn.Linear):
+            nn.init.xavier_uniform_(self.classifier.weight)
+            nn.init.zeros_(self.classifier.bias)
+        else:
+            for m in self.classifier.modules():
+                if isinstance(m, nn.Linear):
+                    nn.init.xavier_uniform_(m.weight)
+                    nn.init.zeros_(m.bias)
+
+    @torch.no_grad()
+    def infer(self, x: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """
-        定义前向传播过程。
-        
-        参数:
-            x (torch.Tensor): 输入的查询嵌入张量，形状为 [batch_size, input_dim]。
-            temperature (float): Gumbel-Softmax的温度参数。值越小，输出结果越接近one-hot。
-            hard (bool): 如果为True，则前向传播的输出是one-hot向量。
-                         在反向传播时，梯度都会被平滑地计算。
-                         
-        返回:
-            torch.Tensor: 一个形状为 [batch_size, num_choices] 的独热向量，表示为每个查询选择的模态。
+        推理用：返回 (probs, logits, choice)
+        probs: [B, 2]，softmax 概率
+        logits: [B, 2]
+        choice: [B]，{0=text, 1=image}
         """
-        # 1. 通过分类器（线性层）计算得到每个选项的原始分数 (logits)
-        logits = self.classifier(x)
-        
-        # 2. 应用Gumbel-Softmax技巧，得到最终的独热向量选择
-        selection = F.gumbel_softmax(logits, tau=temperature, hard=hard)
-        
-        return selection
+        logits = self.classifier(x)                       # [B, 2]
+        probs = torch.softmax(logits, dim=-1)            # [B, 2]
+        choice = torch.argmax(probs, dim=-1)             # [B]
+        return probs, logits, choice
+
+    def set_temperature(self, tau: float):
+        self.tau = float(tau)
+
+    def forward(
+        self,
+        x: torch.Tensor,
+        training: bool = True,
+        hard: bool = False
+    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        """
+        训练/调试通用前向：
+        - training=True: 使用 Gumbel-Softmax 采样（hard=False 输出连续概率；hard=True 输出one-hot并用STE反传）
+        - training=False: 与 infer 相同（one-hot by argmax）
+        返回 (probs_or_y, logits, choice)
+        """
+        logits = self.classifier(x)  # [B, 2]
+
+        if training:
+            y = F.gumbel_softmax(logits, tau=self.tau, hard=hard, dim=-1)  # [B, 2]
+            choice = torch.argmax(y, dim=-1)
+            return y, logits, choice
+        else:
+            # 推理：用 softmax 概率 + argmax one-hot 选择
+            probs = torch.softmax(logits, dim=-1)
+            choice = torch.argmax(probs, dim=-1)
+            return probs, logits, choice

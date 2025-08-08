@@ -1,4 +1,4 @@
-# 文件路径: my_multimodal_rag/src/agents/seeker_agent.py (最终版)
+# 文件路径: my_multimodal_rag/src/agents/seeker_agent.py 
 
 from src.retrievers.text_retriever import TextRetriever
 from src.retrievers.image_retriever import ImageRetriever

@@ -2,45 +2,48 @@
 
 import torch
 from transformers import AutoTokenizer, AutoModel
-
-# --------------------------------------------------------------------------
-# 在这里，我们定义了要使用的模型，参考vidorag，我们选择BAAI/bge-m3
-MODEL_NAME = "BAAI/bge-m3"
-print(f"正在加载嵌入模型: {MODEL_NAME}...")
-print("（首次运行需要下载模型，请耐心等待...）")
-
-# 尝试将模型加载到GPU（如果可用），否则使用CPU
-try:
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
-    embedding_model = AutoModel.from_pretrained(MODEL_NAME).to(device)
-    embedding_model.eval() # 将模型设置为评估模式
-    print(f"嵌入模型成功加载到: {device}")
-except Exception as e:
-    print(f"加载嵌入模型失败，请检查网络连接或模型名称是否正确。错误: {e}")
-    # 如果加载失败，则退出或使用模拟函数
-    embedding_model = None
-# --------------------------------------------------------------------------
+import torch.nn.functional as F
 
 
-def get_text_embedding(text: str) -> torch.Tensor:
+class QueryEmbedder:
     """
-    将单句文本转换为一个真实的嵌入向量。
+    通用的查询嵌入器封装，便于后续切换不同模型（BGE/Qwen3等）。
     """
-    if embedding_model is None:
-        print("错误：嵌入模型未成功加载，返回一个随机向量。")
-        return torch.randn(1, 1024) # BGE-M3 的维度是 1024
+    def __init__(self, model_name: str = "BAAI/bge-m3", device: str = None):
+        print(f"[Embedding] 正在加载查询嵌入模型: {model_name} ...")
+        if device is None:
+            device = "cuda" if torch.cuda.is_available() else "cpu"
+        self.device = torch.device(device)
 
-    # 1. 使用分词器对文本进行编码
-    encoded_input = tokenizer(text, padding=True, truncation=True, return_tensors='pt').to(device)
-    
-    # 2. 将编码后的数据输入模型进行计算 (关闭梯度计算以节省资源)
-    with torch.no_grad():
-        model_output = embedding_model(**encoded_input)
-        
-    # 3. 从模型输出中提取句子嵌入向量
-    #    BGE模型推荐的做法是取[CLS]token的向量并进行归一化
-    sentence_embedding = model_output[0][:, 0] # 取[CLS] token
-    sentence_embedding = torch.nn.functional.normalize(sentence_embedding, p=2, dim=1)
-    
-    return sentence_embedding
+        # 加载分词器和模型
+        self.tokenizer = AutoTokenizer.from_pretrained(model_name, trust_remote_code=True)
+        self.model = AutoModel.from_pretrained(model_name, trust_remote_code=True).to(self.device)
+        self.model.eval()
+
+        # 推一次，获取输出维度
+        with torch.no_grad():
+            test_inp = self.tokenizer("test", return_tensors="pt").to(self.device)
+            out = self.model(**test_inp)[0][:, 0]
+            self.out_dim = out.shape[-1]
+
+        print(f"[Embedding] 模型已加载到 {self.device} | 输出维度: {self.out_dim}")
+
+    def encode(self, text: str) -> torch.Tensor:
+        """
+        将输入文本编码为向量（形状：[D]）。
+        """
+        encoded_input = self.tokenizer(text, padding=True, truncation=True, return_tensors='pt').to(self.device)
+        with torch.no_grad():
+            model_output = self.model(**encoded_input)
+        # BGE 系列取 [CLS] token
+        sentence_embedding = model_output[0][:, 0]
+        sentence_embedding = F.normalize(sentence_embedding, p=2, dim=1)
+        return sentence_embedding.squeeze(0)  # 返回 [D]
+
+
+def get_query_embedding(embedder: QueryEmbedder, query: str) -> torch.Tensor:
+    """
+    给定 embedder 和 query，返回形状 [1, D] 的张量。
+    """
+    vec = embedder.encode(query)  # [D]
+    return vec.unsqueeze(0)  # [1, D]

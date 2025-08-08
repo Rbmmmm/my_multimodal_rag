@@ -14,3 +14,6 @@ accelerate==0.25.0
 sentence-transformers==2.7.0 # 这是一个可以和上述组合良好工作的版本
 
 llama-index-embeddings-huggingface==0.2.0
+
+# requirements.txt
+ragatouille<0.0.10

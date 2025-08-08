@@ -1,90 +1,125 @@
-# File: my_multimodal_rag/src/agents/inspector_agent.py (Final version, using pure Transformers)
+# File: my_multimodal_rag/src/agents/inspector_agent.py
 
 import torch
-from typing import List, Tuple
+from typing import List, Tuple, Any
 from llama_index.core.schema import NodeWithScore
-# 不再需要从 sentence_transformers 导入 CrossEncoder
-# from sentence_transformers import CrossEncoder
-
-# 直接从 transformers 导入核心组件
 from transformers import AutoTokenizer, AutoModelForSequenceClassification
-import numpy as np
 
 class InspectorAgent:
-    def __init__(self, 
-                 reranker_model_name: str = 'BAAI/bge-reranker-large'):
-        
-        print(f"Inspector: Loading unified reranker model directly with Transformers: {reranker_model_name} ...")
+    """
+    使用纯 Transformers 的统一重排器（Cross-Encoder）。
+    默认模型：BAAI/bge-reranker-large
+    """
+
+    def __init__(self, reranker_model_name: str = "BAAI/bge-reranker-large"):
+        print(f"Inspector: Loading unified reranker with Transformers: {reranker_model_name} ...")
+
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        
-        # --- 核心修改：直接使用 transformers 加载 ---
-        # 1. 加载分词器 (Tokenizer)
+
+        # 选择合适 dtype（优先 bf16，其次 fp16，最后 fp32）
+        if torch.cuda.is_available() and torch.cuda.is_bf16_supported():
+            torch_dtype = torch.bfloat16
+        elif torch.cuda.is_available():
+            torch_dtype = torch.float16
+        else:
+            torch_dtype = torch.float32
+
+        # 1) Tokenizer
         self.reranker_tokenizer = AutoTokenizer.from_pretrained(
-            reranker_model_name, 
+            reranker_model_name,
             trust_remote_code=True,
-            use_fast=False  
+            use_fast=False  # 某些模型的快版分词器在 pair 模式下不稳定
         )
-        
-        # 2. 加载模型
+
+        # 2) Model（不滥用 device_map，加载后手动挪到目标设备）
         self.reranker_model = AutoModelForSequenceClassification.from_pretrained(
             reranker_model_name,
-            torch_dtype=torch.bfloat16, # 使用 bfloat16 提高效率
-            device_map=self.device,
+            torch_dtype=torch_dtype,
             trust_remote_code=True
         )
-        # 将模型设置为评估模式
+        self.reranker_model.to(self.device)
         self.reranker_model.eval()
-        
-        print("✅ Unified reranker model loaded successfully using Transformers.")
 
-    def run(self, query: str, nodes: List[NodeWithScore], confidence_threshold: float = 0.7) -> Tuple[str, any, List[NodeWithScore], torch.Tensor]:
+        print(f"✅ Unified reranker loaded. device={self.device}, dtype={torch_dtype}")
+
+    # ---- 内部工具：把 Node 内容安全地转成文本 ----
+    @staticmethod
+    def _to_text_view(node: NodeWithScore) -> str:
+        """
+        将节点内容转换为可重排的文本。
+        若是图像节点，需确保在建索引时已填入 caption/OCR 文本。
+        """
+        try:
+            content = node.get_content()
+        except Exception:
+            content = ""
+        if isinstance(content, str):
+            return content
+        return str(content) if content is not None else ""
+
+    def run(
+        self,
+        query: str,
+        nodes: List[NodeWithScore],
+        confidence_threshold: float = 0.7
+    ) -> Tuple[str, Any, List[NodeWithScore], torch.Tensor]:
+        """
+        对候选 nodes 进行重排，计算置信度，并决定是否进入生成阶段。
+        返回:
+          status: 'synthesizer' 或 'seeker'
+          feedback: 文本反馈（当需回退检索时）
+          nodes: 排序后的节点，节点.score 为 reranker 的 logit 分数
+          confidence: torch.Tensor(标量)，对 top-1 logit 做 sigmoid 后的置信度
+        """
         if not nodes:
             return 'seeker', "Initial retrieval found no results.", [], torch.tensor(0.0, device=self.device)
 
-        # 1. 手动实现重排逻辑
-        node_contents = [node.get_content() for node in nodes]
-        sentence_pairs = [(query, content) for content in node_contents]
-        print(f"\n[Inspector] Performing reranking with {self.reranker_model.config._name_or_path}...")
-        
-        # 使用 torch.no_grad() 以节省显存并加速
+        # 1) 准备文本对 (query, node_text)
+        node_texts = [self._to_text_view(n) for n in nodes]
+        print(f"\n[Inspector] Performing reranking with {self.reranker_model.config._name_or_path} ...")
+
         with torch.no_grad():
-            # 使用分词器处理所有句子对
+            # 成对编码：text=[query]*N, text_pair=node_texts
             inputs = self.reranker_tokenizer(
-                sentence_pairs,
+                [query] * len(node_texts),
+                node_texts,
                 padding=True,
                 truncation=True,
-                return_tensors='pt',
-                max_length=512
-            ).to(self.device)
-            
-            # 将处理好的输入传递给模型，获取原始分数 (logits)
+                max_length=512,
+                return_tensors='pt'
+            )
+            inputs = {k: v.to(self.device) for k, v in inputs.items()}
+
             outputs = self.reranker_model(**inputs)
-            rerank_scores_logits = outputs.logits.squeeze(-1) # 形状从 [N, 1] 变为 [N]
-        
-        # 将 rerank scores (logits) 存回 nodes
+            # bge-reranker-large 输出 [N, 1]，压成 [N]
+            rerank_scores_logits = outputs.logits.squeeze(-1)  # [N]
+
+        # 2) 写回分数并排序（降序）
         for i in range(len(nodes)):
-            nodes[i].score = rerank_scores_logits[i].item()
-        
+            nodes[i].score = float(rerank_scores_logits[i].item())
         nodes.sort(key=lambda x: x.score, reverse=True)
         print("✅ Reranking completed.")
 
-        # 2. 从最高分的文档中计算可微的置信度分数
-        if not nodes:
-             return 'seeker', "Reranking resulted in zero nodes.", [], torch.tensor(0.0, device=self.device)
-        
-        top_score_logit = rerank_scores_logits.max() # 直接从 tensor 中获取最大值
-        
-        confidence_score = torch.sigmoid(top_score_logit)
-        
-        print(f"[Inspector] Evaluating confidence using reranker's top score...")
-        print(f"  [Debug] Top Logit: {top_score_logit.item():.4f} -> Sigmoid Confidence: {confidence_score.item():.4f}")
+        # 3) 计算置信度（对 top-1 logit 做 sigmoid）
+        if len(nodes) == 0:
+            return 'seeker', "Reranking resulted in zero nodes.", [], torch.tensor(0.0, device=self.device)
+
+        top_score_logit = torch.max(rerank_scores_logits)           # 标量 tensor
+        confidence_score = torch.sigmoid(top_score_logit)           # 标量 tensor
+
+        print("[Inspector] Evaluating confidence from top logit ...")
+        print(f"  [Debug] Top Logit: {top_score_logit.item():.4f} -> Sigmoid: {confidence_score.item():.4f}")
         print(f"✅ Confidence evaluation completed. Top confidence: {confidence_score.item():.4f}")
 
-        # 3. 根据置信度进行决策
+        # 4) 决策
         if confidence_score.item() > confidence_threshold:
             print("Decision: Evidence is sufficient. Proceeding to Synthesizer.")
             return 'synthesizer', "Evidence is sufficient.", nodes, confidence_score
         else:
             print("Decision: Evidence is insufficient. Sending feedback to Seeker.")
-            feedback = f"The top reranked document was deemed not relevant enough (confidence: {confidence_score.item():.2f}). We need documents that more directly answer the question: '{query}'"
+            feedback = (
+                "The top reranked document was deemed not relevant enough "
+                f"(confidence: {confidence_score.item():.2f}). "
+                f"We need documents that more directly answer the question: '{query}'"
+            )
             return 'seeker', feedback, nodes, confidence_score
