@@ -1,22 +1,24 @@
-# 文件路径: my_multimodal_rag/src/agents/synthesizer_agent.py
-
+import os
+import re
 import torch
-from typing import List
+from typing import List, Optional
 from transformers import AutoTokenizer, AutoModelForSeq2SeqLM
 from llama_index.core.schema import BaseNode
 
 
 class SynthesizerAgent:
     """
-    面向 T5/FLAN 的 Seq2Seq 生成器（稳定版）
+    面向 T5/FLAN 的 Seq2Seq 生成器（稳定版） + 可选的 Qwen-VL 支路
     修复点：
-      1) 不使用 chat_template
-      2) 严格 token 级限长（<= 512）
-      3) Top-1 证据优先保留，其它片段小额度补充
-      4) 动态压缩上下文，直到总 token 数满足上限
+      1) （新增）若存在图片证据且注入了 VLM 客户端，优先用 VLM 直接抽取短答案；
+         拿不到再回退到原有 T5 文本生成。
+      2) 不使用 chat_template
+      3) 严格 token 级限长（<= 512）
+      4) Top-1 证据优先保留，其它片段小额度补充
+      5) 动态压缩上下文，直到总 token 数满足上限
     """
 
-    def __init__(self, model_name: str):
+    def __init__(self, model_name: str, vlm_client: Optional[object] = None, use_vlm: bool = True):
         print(f"Synthesizer: Loading generation model: {model_name}...")
         self.tokenizer = AutoTokenizer.from_pretrained(model_name, trust_remote_code=True)
         self.tokenizer.model_max_length = 10000
@@ -48,6 +50,10 @@ class SynthesizerAgent:
         self.rest_max_tokens = 90
         self.min_rest_tokens = 40        # 动态压缩时的片段最小额度
         self.compress_step = 30          # 每次压缩步长（tokens）
+
+        # VLM
+        self.vlm_client = vlm_client
+        self.use_vlm = bool(use_vlm)
 
     # --- 工具：把文本截到指定 token 数 ---
     def _truncate_by_tokens(self, text: str, max_tokens: int) -> str:
@@ -103,9 +109,80 @@ class SynthesizerAgent:
 
         return prompt
 
+    @staticmethod
+    def _collect_texts(nodes: List[BaseNode], limit: int = 3) -> List[str]:
+        texts: List[str] = []
+        for n in nodes[:limit]:
+            try:
+                c = n.get_content()
+            except Exception:
+                c = ""
+            if not isinstance(c, str):
+                c = str(c or "")
+            c = c.strip()
+            if c:
+                texts.append(c)
+        return texts
+
+    @staticmethod
+    def _collect_image_paths(nodes: List[BaseNode], limit: int = 4) -> List[str]:
+        """
+        从节点元数据里抽取 image_path（由 ImageRetriever 提供）。
+        仅返回真实存在/可访问的本地路径或 URL（这里不过滤 URL，VLM 端可支持 URL 时直接使用）。
+        """
+        paths: List[str] = []
+        for n in nodes:
+            md = getattr(n, "metadata", {}) or {}
+            p = md.get("image_path")
+            if isinstance(p, str) and p:
+                paths.append(p)
+            if len(paths) >= limit:
+                break
+        return paths
+
+    @staticmethod
+    def _post_clean(ans: str) -> str:
+        """简单清洗 VLM 短答案"""
+        if not ans:
+            return ans
+        s = re.sub(r"\s+", " ", ans).strip()
+        # 去掉多余的尾部标点
+        s = s.rstrip(" .,:;")
+        # 控长度，避免 VLM 啰嗦
+        return s[:200]
+
+    def _try_vlm(self, query: str, nodes: List[BaseNode]) -> Optional[str]:
+        """
+        若有图片证据且配置了 VLM 客户端，则让 VLM 直接抽取短答案。
+        返回 None 表示放弃（交给 T5 处理）。
+        """
+        if not self.use_vlm or self.vlm_client is None:
+            return None
+
+        image_paths = self._collect_image_paths(nodes, limit=6)
+        if not image_paths:
+            return None
+
+        try:
+            # 你的 QwenVLM 实现应提供 ask(question, image_paths) -> str
+            vlm_answer = self.vlm_client.ask(question=query, image_paths=image_paths)
+            vlm_answer = self._post_clean(vlm_answer or "")
+            if vlm_answer:
+                print("[Synthesizer][VLM] Using Qwen-VL candidate answer:", vlm_answer)
+                return vlm_answer
+        except Exception as e:
+            print(f"[Synthesizer][VLM] error: {e}")
+
+        return None
+
     def generate(self, query: str, relevant_nodes: List[BaseNode]) -> str:
         if not relevant_nodes:
             return "Insufficient information to generate an answer."
+
+        # （新增）先走 VLM 支路（仅当有图片证据）
+        vlm_ans = self._try_vlm(query, relevant_nodes)
+        if vlm_ans:
+            return vlm_ans
 
         # 取前若干证据（Top-1 最重要）
         raw_snippets: List[str] = []

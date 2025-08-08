@@ -1,5 +1,5 @@
-import json
 import os
+import json
 import torch
 
 from src.retrievers.text_retriever import TextRetriever
@@ -13,6 +13,19 @@ from src.agents.synthesizer_agent import SynthesizerAgent
 from src.models.gumbel_selector import GumbelModalSelector
 from src.orchestrator import RAGOrchestrator
 from src.utils.embedding_utils import QueryEmbedder, get_query_embedding
+
+# ====== 可选：Qwen-VL 客户端 ======
+_qwen_vlm = None
+try:
+    # 你需要提供 src/vlm/qwen_vlm.py，包含 QwenVLM 类（见之前说明）
+    from src.vlm.qwen_vlm import QwenVLM  # noqa
+    if os.getenv("DASHSCOPE_API_KEY"):
+        _qwen_vlm = QwenVLM(model="qwen-vl-max")  # 会自动读取 DASHSCOPE_API_KEY
+        print("✅ Qwen-VL client initialized.")
+    else:
+        print("ℹ️ DASHSCOPE_API_KEY not set. VLM path disabled (will fallback to text-only).")
+except Exception as e:
+    print(f"ℹ️ Qwen-VL client not available: {e} (will fallback to text-only).")
 
 
 def main():
@@ -29,7 +42,8 @@ def main():
     with open(dataset_path, "r", encoding="utf-8") as f:
         examples = json.load(f)["examples"]
 
-    test_num = 10
+    # 按你自己的测试节奏来；这里跑前 3 条
+    test_num = 3
 
     for i in range(test_num):
         sample_idx = i
@@ -39,13 +53,14 @@ def main():
         # 统一的 Query Embedding
         query_embedding = get_query_embedding(q_embedder, query)
 
-        # 可选：强制某一路（0=text, 1=image, 2=chart）；不强制用 None
-        # force_modality = None
-
-        if sample["meta_info"]["source_type"] == "text":
+        # 强制模态（0=text, 1=image, 2=chart），为了可复现实验
+        src_type = sample.get("meta_info", {}).get("source_type")
+        if src_type == "text":
             force_modality = 0
+        elif src_type == "chart":
+            force_modality = 1  # 图表目前仍走 image-OCR 线路
         else:
-            force_modality = 1
+            force_modality = 1  # image
 
         # 3) 检索器懒加载工厂（不提前实例化，避免重复初始化与预编码）
         print("\n[3] 初始化检索器（按需）...")
@@ -56,7 +71,6 @@ def main():
                 ocr_dir="data/ViDoSeek/bge_ingestion",
                 text_encoder="BAAI/bge-m3",
                 cache_dir=".cache/ocr_embeds",   # ✅ 保留缓存目录
-                # ⚠️ 不要再传 cache_fp16 了，新版不支持
             ),
             "chart": lambda: ChartRetriever(node_dir="data/ViDoSeek/bge_ingestion"),
         }
@@ -89,8 +103,17 @@ def main():
             image_retriever=image_retriever,
             chart_retriever=chart_retriever,
         )
-        inspector = InspectorAgent()
-        synthesizer = SynthesizerAgent(model_name="google/flan-t5-large")
+        inspector = InspectorAgent(
+            reranker_model_name="BAAI/bge-reranker-large",
+            heuristic_enable=True,
+            default_conf_threshold=0.15,
+        )
+        # 将 VLM 客户端注入 Synthesizer（仅在有图片证据时会被调用）
+        synthesizer = SynthesizerAgent(
+            model_name="google/flan-t5-large",
+            vlm_client=_qwen_vlm,
+            use_vlm=True,
+        )
 
         orchestrator = RAGOrchestrator(
             seeker=seeker,
