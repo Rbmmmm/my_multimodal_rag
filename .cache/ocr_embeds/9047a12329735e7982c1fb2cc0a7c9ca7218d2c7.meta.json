@@ -1,0 +1,7 @@
+{
+  "text_encoder": "BAAI/bge-m3",
+  "dtype": "fp16",
+  "N": 5385,
+  "D": 1024,
+  "created_at": 1754669646.103968
+}
