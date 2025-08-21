@@ -1,2 +1,40 @@
 # 忽略 data 文件夹及其所有内容
 data/
+
+.cache/
+.llama_index_storage/
+.ragatouille/
+checkpoints/
+
+
+
+# 2. Python 相关的忽略项 (通用最佳实践)
+# ----------------------------------------------------
+# 字节码文件
+__pycache__/
+*.py[cod]
+*$py.class
+
+# 虚拟环境目录
+venv/
+.venv/
+my_rag_env/ # 如果您的Conda环境建在项目内
+
+# 环境变量文件 (包含敏感信息，如API Keys)
+.env
+.env.*
+
+# 包管理和构建产物
+dist/
+build/
+*.egg-info/
+*.pyc
+
+# 3. IDE / 编辑器相关的忽略项
+# ----------------------------------------------------
+# VSCode
+.vscode/
+
+Thumbs.db
+
+IMAGE.zip

@@ -4,9 +4,9 @@ import csv, json
 from typing import List
 from pathlib import Path
 
-from src.retrievers.text_retriever import TextRetriever
-from src.retrievers.image_retriever import ImageRetriever
-from src.agents.inspector_agent import InspectorAgent
+from src.searcher.text_retriever import TextRetriever
+from src.searcher.image_retriever import ImageRetriever
+from src.agent.inspector_agent import InspectorAgent
 
 def top1_rerank_score(inspector: InspectorAgent, query: str, nodes) -> float:
     if not nodes:
