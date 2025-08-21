@@ -68,7 +68,6 @@ class Qwen_VL_2_5:
 
 class LLM:
     def __init__(self, model_name):
-        print("✅ 当前使用的是你刚贴的 llms/llm.py 文件")
         self.model_name = model_name
         # ✅ (新增!) 增加了对 'qwen-vl-max' 的处理分支
         if 'qwen-vl-max' in self.model_name:

@@ -128,47 +128,5 @@ class SearchEngine:
         else:
             raise NotImplementedError(f"The retriever for '{modality}' does not have a 'search' or 'retrieve' method.")
 
-
-# --- 使用示例 ---
 if __name__ == '__main__':
-    # 为了让这个示例能跑起来，我们需要创建一些假的索引文件
-    print("--- Creating dummy data for demonstration ---")
-    DUMMY_DATASET = 'placeholder_dataset'
-    os.makedirs(os.path.join('data', DUMMY_DATASET), exist_ok=True)
-    
-    # 假向量 (5个文档, 384维度，这是all-MiniLM-L6-v2的维度)
-    dummy_embeddings = torch.randn(5, 384)
-    torch.save(dummy_embeddings, os.path.join('data', DUMMY_DATASET, 'embeddings.pt'))
-    
-    # 假元数据
-    dummy_metadata = [
-        {'id': 'doc1', 'text': 'The sky is blue.'},
-        {'id': 'doc2', 'text': 'The cat sleeps on the mat.'},
-        {'id': 'doc3', 'text': 'Blueberries are a type of fruit.'},
-        {'id': 'doc4', 'text': 'PyTorch is a deep learning framework.'},
-        {'id': 'doc5', 'text': 'A cat is a small domesticated carnivorous mammal.'}
-    ]
-    with open(os.path.join('data', DUMMY_DATASET, 'metadata.jsonl'), 'w') as f:
-        for item in dummy_metadata:
-            f.write(json.dumps(item) + '\n')
-    print("--- Dummy data created. ---")
-
-    # 1. 初始化搜索引擎
-    engine = SearchEngine(dataset_name_1=DUMMY_DATASET)
-    
-    # 2. 执行一个文本搜索
-    my_query = "What is a cat?"
-    print(f"\nPerforming search for: '{my_query}'")
-    
-    # 2a. 不使用GMM
-    search_results = engine.search(query=my_query, modality='text', top_k=3, use_gmm=False)
-    print("\n--- Results (Top 3, without GMM) ---")
-    for res in search_results:
-        print(f"ID: {res['id']}, Score: {res['score']:.4f}, Content: {res['content']}")
-        
-    # 2b. 使用GMM
-    # 为了让GMM有意义，我们检索更多结果
-    search_results_for_gmm = engine.search(query=my_query, modality='text', top_k=5, use_gmm=True)
-    print("\n--- Results (Top 5, with GMM filter) ---")
-    for res in search_results_for_gmm:
-        print(f"ID: {res['id']}, Score: {res['score']:.4f}, Content: {res['content']}")
+    print("hello")

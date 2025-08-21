@@ -5,7 +5,7 @@ data/
 .llama_index_storage/
 .ragatouille/
 checkpoints/
-
+.image_cache/
 
 
 # 2. Python 相关的忽略项 (通用最佳实践)

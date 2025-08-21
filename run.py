@@ -1,10 +1,8 @@
 # File: run.py
-# The final, clean entry point to initialize and run the entire RAG system.
 
 import os
 import torch
 
-# --- 导入您项目中的所有核心模块 ---
 from src.searcher.text_searcher import TextSearcher
 from src.searcher.image_searcher import ImageSearcher
 from src.searcher.table_searcher import TableSearcher
@@ -14,9 +12,8 @@ from src.agent.inspector_agent import InspectorAgent
 from src.agent.synthesizer_agent import SynthesizerAgent
 from src.models.gumbel_selector import GumbelModalSelector
 from src.orchestrator import RAGOrchestrator
-from src.llms.llm import LLM               # 假设您有一个VLM客户端的封装
-from src.utils.embedding_utils import QueryEmbedder      # 假设您有一个查询嵌入器的封装
-
+from src.llms.llm import LLM               
+from src.utils.embedding_utils import QueryEmbedder      
 from llama_index.core import Settings
 import json
 
@@ -30,51 +27,47 @@ def main():
     # 步骤 1: 初始化所有系统组件
     # ==========================================================================
     print("="*30)
-    print("Step 1: Initializing System Components...")
+    print("步骤 1: 初始化所有系统组件")
     
     # --- 1a. 设置 API Key 和设备 ---
-    # !! 重要 !!: 请将您的 API Key 填入此处
+    print("\n[1a] 设置 vlm API Key...")
     os.environ['DASHSCOPE_API_KEY'] = "sk-fdb11107afd1435398e9d40958af5e42"
     device = "cuda" if torch.cuda.is_available() else "cpu"
-
-    if 'xxxx' in os.environ['DASHSCOPE_API_KEY']:
-        print("⚠️ WARNING: DASHSCOPE_API_KEY is not set. VLM calls will fail.")
+    print("[1a] ✅ vlm API Key 已成功设置.")
 
     # --- 1b. 初始化核心模型 ---
-    print("\nInitializing core models...")
+    print("\n[1b] 初始化 query 嵌入模型和 vlm 模型...")
     query_embedder = QueryEmbedder(model_name="BAAI/bge-m3", device=device)
     vlm = LLM("qwen-vl-max")
+    print("[1b] ✅ 初始化 query 嵌入模型和 vlm 模型 已成功初始化.")
 
     # --- 1c. 创建检索器“工厂” (Retriever Factories) ---
-    print("\n[1c] Defining retriever factories for lazy loading...")
+    print("\n[1c] 创建检索器工厂...")
     retriever_factories = {
         "text": lambda: TextSearcher(
             dataset_name='ViDoSeek',
             mode='bi_encoder',
-            # --- 修正：为 ColBERT 模式明确提供包含 .node 文件的目录前缀 ---
-            # ColBERT 需要读取这些原始文本节点来建立自己的索引
             node_dir_prefix='bge_ingestion' 
         ),
         "image": lambda: ImageSearcher(
             dataset_name='ViDoSeek',
             mode='vl_search',
-            # 图像检索器也可能需要指定其节点目录
             vl_node_dir_prefix='colqwen_ingestion' 
         ),
         "table": lambda: TableSearcher(
             dataset_name='ViDoSeek',
             mode='vl_search',
-            # 表格检索器同理
-            vl_node_dir_prefix='colqwen_ingestion' # 假设表格和图像用同一套多模态节点
+            vl_node_dir_prefix='colqwen_ingestion' 
         )
     }
 
     # --- 1d. 初始化支持懒加载的 SearchEngine ---
-    # 注意：这里只传入了工厂，没有进行任何实际的模型加载！
+    print("\n[1d] 初始化支持懒加载的 SearchEngine...")
     search_engine = SearchEngine(retriever_factories=retriever_factories)
-    print("✅ LAZY SearchEngine initialized.")
+    print("[1d] ✅ 懒加载 SearchEngine 已成功初始化.")
 
     # --- 1e. 初始化 Gumbel 模态选择器 ---
+    print("\n[1e] 初始化 Gumbel 模态选择器...")
     gumbel_selector = GumbelModalSelector(
         input_dim=query_embedder.out_dim,
         num_choices=3, # 0=text, 1=image, 2=table
@@ -85,18 +78,20 @@ def main():
     ckpt_path = "checkpoints/modal_selector.pt"
     if os.path.exists(ckpt_path):
         gumbel_selector.load_state_dict(torch.load(ckpt_path, map_location=device))
-        print(f"✅ Loaded Gumbel Selector weights from {ckpt_path}")
+        print(f"[1e] ✅ Loaded Gumbel Selector weights from {ckpt_path}")
     else:
-        print("ℹ️ No Gumbel Selector checkpoint found, using random initialization.")
+        print("[1e] ℹ️ No Gumbel Selector checkpoint found, using random initialization.")
 
-    print("\nInitializing Agents...")
-    image_base_dir = "data/ViDoSeek/img" # 定义图片所在的根目录
+    # --- 1f. 初始化 seeker, inspector, synthesizer agents ---
+    print("\n[1f] 初始化 agents...")
+    image_base_dir = "data/ViDoSeek/img" 
     seeker_agent = SeekerAgent(vlm=vlm, image_base_dir=image_base_dir)
     inspector_agent = InspectorAgent(vlm=vlm, image_base_dir=image_base_dir, reranker_model_name="BAAI/bge-reranker-large")
     synthesizer_agent = SynthesizerAgent(vlm=vlm, image_base_dir=image_base_dir)
-    print("✅ All Agents initialized.")
+    print("[1f] ✅ 所有 agents 已被成功初始化.")
 
-    # --- 1f. 组装总指挥 (Orchestrator) ---
+    # --- 1g. 组装总指挥 (Orchestrator) ---
+    print("\n[1g] 初始化 orchestrator...")
     orchestrator = RAGOrchestrator(
         search_engine=search_engine,
         seeker=seeker_agent,          # <-- 使用已经创建好的实例
@@ -104,17 +99,25 @@ def main():
         synthesizer=synthesizer_agent,  # <-- 使用已经创建好的实例
         gumbel_selector=gumbel_selector
     )
+    print("[1g] ✅ Orchestrator 已成功初始化.")
     
-    print("\n✅ All components initialized. Orchestrator is ready.")
+    print("\n✅ 所有组件已就位.")
     print("="*30)
 
-    # --- 2a. 配置批量测试 ---
+    # ==========================================================================
+    # 步骤 2: 批量测试
+    # ==========================================================================
+    
+    print("\n步骤 2: 开始批量测试")
+    
+    # --- 2a. 设置参数 ---
+    print("\n[2a] 设置测试参数")
     DATASET_PATH = "data/ViDoSeek/rag_dataset.json"
     START_INDEX = 10  # 从第几个样本开始测试
     NUM_TO_TEST = 5  # 希望测试的样本数量
 
     # --- 2b. 加载测试样本 ---
-    print(f"\n[Batch Test] Loading dataset from {DATASET_PATH}...")
+    print(f"\n[2b] 从 {DATASET_PATH} 加载测试样本...")
     try:
         with open(DATASET_PATH, "r", encoding="utf-8") as f:
             examples = json.load(f)["examples"]
@@ -125,7 +128,9 @@ def main():
 
     # --- 2c. 循环执行测试 ---
     end_index = min(START_INDEX + NUM_TO_TEST, len(examples))
+    cnt = 0
     for i in range(START_INDEX, end_index):
+        cnt += 1
         sample = examples[i]
         query = sample.get("query")
         reference_answer = sample.get("reference_answer", "(This sample has no reference answer)")
@@ -135,7 +140,7 @@ def main():
             continue
 
         print("\n" + "#"*60)
-        print(f"# Running Test Case {i+1} / {NUM_TO_TEST} (Dataset Index: {i})")
+        print(f"# Running Test Case {cnt} / {NUM_TO_TEST} (Dataset Index: {i})")
         print("#"*60)
         
         print(f"\n[User Query]: {query}")
@@ -148,6 +153,7 @@ def main():
         query_embedding = get_query_embedding(query_embedder, query)
         
         # 2. 调用 Orchestrator 一键运行
+        # 可以手动设置 top_k
         final_answer = orchestrator.run(
             query=query,
             query_embedding=query_embedding,
@@ -163,7 +169,6 @@ def main():
         print("-" * 40)
         print(f"[Reference Answer]:\n{reference_answer}")
         print("="*30)
-
 
 if __name__ == '__main__':
     main()
