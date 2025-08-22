@@ -35,7 +35,7 @@ class ImageSearcher(BaseSearcher):
                  ocr_text_encoder: str = "BAAI/bge-m3",
                  img_dir_prefix: str = 'img'):
         
-        print(f"Initializing ImageSearcher for dataset '{dataset_name}' in '{mode}' mode...")
+        print(f"[ImageSearcher] 步骤 2.2: Initializing ImageSearcher for dataset '{dataset_name}' in '{mode}' mode...")
         self.mode = mode
         self.dataset_dir = os.path.join('./data', dataset_name)
         
@@ -51,7 +51,7 @@ class ImageSearcher(BaseSearcher):
             self.cache_dir = os.path.join(".image_cache", f"{dataset_name}_{vl_node_dir_prefix}")
             os.makedirs(self.cache_dir, exist_ok=True)
             self._load_vl_index_from_cache()
-            print("✅ VL Search engine for images is ready.")
+            print("[ImageSearcher] 步骤 2.2: ✅ VL Search engine for images is ready.")
 
         elif self.mode == 'ocr_search':
             if ocr_node_dir_prefix is None or vl_node_dir_prefix is None:
@@ -188,7 +188,7 @@ class ImageSearcher(BaseSearcher):
                 print(f"\n❌ Error processing file: {file}\n{e}\n")
 
     def search(self, query: str, top_k: int) -> List[NodeWithScore]:
-        print(f"\n--- Executing image search in '{self.mode}' mode (TopK={top_k}) ---")
+        print(f"[ImageSearcher] 步骤 2.3: Executing image search in '{self.mode}' mode (TopK={top_k}) ---")
         if self.mode == 'vl_search':
             return self._search_vl(query, top_k)
         elif self.mode == 'ocr_search':

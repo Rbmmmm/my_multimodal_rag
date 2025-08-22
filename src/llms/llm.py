@@ -5,13 +5,9 @@ from PIL import Image
 from pathlib import Path
 from io import BytesIO
 
-# ✅ Gemini
 import google.generativeai as genai
 
-# 导入 DashScope (用于通义千问API)
 import dashscope
-
-os.environ['GEMINI_API_KEY'] = 'AIzaSyAqYzObls24w0pGO0WjhMicery6R22nfn0'
 
 def _encode_image(image_path):
     if isinstance(image_path, Image.Image):
@@ -69,15 +65,15 @@ class Qwen_VL_2_5:
 class LLM:
     def __init__(self, model_name):
         self.model_name = model_name
-        # ✅ (新增!) 增加了对 'qwen-vl-max' 的处理分支
+
         if 'qwen-vl-max' in self.model_name:
             api_key = os.getenv("DASHSCOPE_API_KEY")
             if not api_key:
                 raise EnvironmentError("❌ 错误: 环境变量 DASHSCOPE_API_KEY 未设置。")
             dashscope.api_key = api_key
-            # self.model 在此情况下就是模型名称字符串，供API调用
+
             self.model = self.model_name
-            print(f"✅ DashScope API for '{self.model_name}' configured.")
+            print(f"[1b] ✅ DashScope API for '{self.model_name}' configured.")
 
         elif "Qwen2.5-VL" in model_name:
             self.model = Qwen_VL_2_5(model_name)
@@ -101,29 +97,24 @@ class LLM:
         if isinstance(image, str):
             image = [image]
 
-        # ✅ (新增!) 增加了调用 DashScope API 的逻辑
+
         if 'qwen-vl-max' in self.model_name:
             messages = [{'role': 'user', 'content': []}]
             
-            # 组织图片内容 (DashScope 需要 'file://' 格式的本地路径)
             for img_path in image:
                 local_image_path = f'file://{Path(img_path).resolve()}'
                 messages[0]['content'].append({'image': local_image_path})
             
-            # 组织文字内容
             messages[0]['content'].append({'text': query})
             
             try:
                 response = dashscope.MultiModalConversation.call(model=self.model, messages=messages)
 
                 if response.status_code == 200:
-                # API返回的内容可能是一个列表，例如 [{'text': '...'}]
-                # 我们需要从中提取出真正的文本内容
                     content = response.output.choices[0].message.content
                     if isinstance(content, list) and len(content) > 0 and 'text' in content[0]:
                         return content[0]['text']
                     else:
-                    # 如果格式不是预期的列表，则按原样返回（以防万一）
                         return str(content) 
 
                 else:

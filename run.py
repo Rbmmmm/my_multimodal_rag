@@ -60,6 +60,7 @@ def main():
             vl_node_dir_prefix='colqwen_ingestion' 
         )
     }
+    print("[1c] ✅ 检索器工厂完成...")
 
     # --- 1d. 初始化支持懒加载的 SearchEngine ---
     print("\n[1d] 初始化支持懒加载的 SearchEngine...")
@@ -70,15 +71,14 @@ def main():
     print("\n[1e] 初始化 Gumbel 模态选择器...")
     gumbel_selector = GumbelModalSelector(
         input_dim=query_embedder.out_dim,
-        num_choices=3, # 0=text, 1=image, 2=table
-        trainable=False
+        num_choices=3 # 0=text, 1=image, 2=table
     ).to(device).eval()
 
-    # (可选) 加载训练好的选择器权重
-    ckpt_path = "checkpoints/modal_selector.pt"
+    # 加载训练好的选择器权重
+    ckpt_path = "checkpoints/modal_selector_best.pt"
     if os.path.exists(ckpt_path):
         gumbel_selector.load_state_dict(torch.load(ckpt_path, map_location=device))
-        print(f"[1e] ✅ Loaded Gumbel Selector weights from {ckpt_path}")
+        print(f"[1e] ✅ 成功从 {ckpt_path} 加载 Gumbel Selector 权重.")
     else:
         print("[1e] ℹ️ No Gumbel Selector checkpoint found, using random initialization.")
 
@@ -101,7 +101,7 @@ def main():
     )
     print("[1g] ✅ Orchestrator 已成功初始化.")
     
-    print("\n✅ 所有组件已就位.")
+    print("\n✅ 步骤一结束：所有组件已就位.")
     print("="*30)
 
     # ==========================================================================
@@ -111,17 +111,18 @@ def main():
     print("\n步骤 2: 开始批量测试")
     
     # --- 2a. 设置参数 ---
-    print("\n[2a] 设置测试参数")
+    print("\n[2a] 设置测试参数...")
     DATASET_PATH = "data/ViDoSeek/rag_dataset.json"
-    START_INDEX = 10  # 从第几个样本开始测试
+    START_INDEX = 0  # 从第几个样本开始测试
     NUM_TO_TEST = 5  # 希望测试的样本数量
+    print("[2a] ✅ 设置完成.")
 
     # --- 2b. 加载测试样本 ---
     print(f"\n[2b] 从 {DATASET_PATH} 加载测试样本...")
     try:
         with open(DATASET_PATH, "r", encoding="utf-8") as f:
             examples = json.load(f)["examples"]
-        print(f"✅ Dataset loaded. Found {len(examples)} total examples.")
+        print(f"[2b] ✅ Dataset loaded. Found {len(examples)} total examples.")
     except FileNotFoundError:
         print(f"❌ ERROR: Dataset file not found at {DATASET_PATH}. Cannot proceed.")
         return
@@ -134,6 +135,19 @@ def main():
         sample = examples[i]
         query = sample.get("query")
         reference_answer = sample.get("reference_answer", "(This sample has no reference answer)")
+        
+        modality_index = None
+        
+        ### Test
+        # modality = sample.get("meta_info")['source_type']
+        
+        # if modality == "text":
+        #     modality_index = 0
+        # elif modality == "2d_layout" or modality == "chart":
+        #     modality_index = 1
+        # elif modality == "table":
+        #     modality_index = 2
+        ### Test
 
         if not query:
             print(f"\n--- Skipping test case {i+1} (Index: {i}) because it has no query. ---")
@@ -157,7 +171,8 @@ def main():
         final_answer = orchestrator.run(
             query=query,
             query_embedding=query_embedding,
-            initial_top_k=10
+            initial_top_k=10,
+            setted_modality_index = modality_index
         )
 
         # --- 步骤 3: 输出结果 (包含对比) ---

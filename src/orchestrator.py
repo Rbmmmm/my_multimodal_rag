@@ -12,7 +12,7 @@ from src.searcher import SearchEngine
 from src.agent.seeker_agent import SeekerAgent
 from src.agent.inspector_agent import InspectorAgent
 from src.agent.synthesizer_agent import SynthesizerAgent
-from src.models.gumbel_selector import GumbelModalSelector
+from src.models.gumbel_selector import GumbelModalSelector, choose_modality
 
 class RAGOrchestrator:
     """
@@ -34,26 +34,26 @@ class RAGOrchestrator:
         self.synthesizer = synthesizer
         self.gumbel_selector = gumbel_selector
         self.use_modal_selector = use_modal_selector
-        self.modality_map = {0: "text", 1: "image", 2: "table"}
-
-    # 调用 gumbel selctor 来选择模态
+        self.modality_map = {0: "text", 1: "image", 2: "image"}
+    
     def _choose_modality(self, query_embedding: torch.Tensor) -> int:
-        
-        if not (self.use_modal_selector and self.gumbel_selector is not None):
-            print("[Orchestrator] No modal selector, defaulting to 'text' (0).")
+        if not self.use_modal_selector:
+            print("[Orchestrator] Modal selector not in use, defaulting to 'text' (0).")
             return 0
-        x = query_embedding.unsqueeze(0) if query_embedding.dim() == 1 else query_embedding
-        probs, _, _ = self.gumbel_selector(x, hard=True)
-        prob_list = probs[0].detach().cpu().tolist()
-        prob_str = ", ".join([f"{self.modality_map.get(i, 'unk')}={p:.3f}" for i, p in enumerate(prob_list)])
-        print(f"[Orchestrator] Selector softmax probs: {prob_str}")
-        return int(torch.argmax(probs[0]).item())
+            
+        # 直接调用封装好的函数
+        return choose_modality(
+            selector_model=self.gumbel_selector,
+            query_embedding=query_embedding,
+            modality_map=self.modality_map
+        )
 
     def run(self, 
             query: str, 
             query_embedding: torch.Tensor, 
             max_iterations: int = 2,
-            initial_top_k: int = 10
+            initial_top_k: int = 10,
+            setted_modality_index : int = None
            ) -> str:
         
         print("\n" + "="*20 + " RAG 流程开始 " + "="*20)
@@ -77,13 +77,15 @@ class RAGOrchestrator:
             # 在第一次迭代时，我们需要进行模态选择和初始检索
             if i == 0:
                 # 步骤 1: 模态选择
-                # modality_index = self._choose_modality(query_embedding)
-                modality_index = 1
+                if isinstance(setted_modality_index, int):
+                    modality_index = setted_modality_index
+                else:
+                    modality_index = self._choose_modality(query_embedding)
                 modality_name = self.modality_map.get(modality_index, "unknown")
                 print(f"[Orchestrator] 步骤 1: 模态选择 -> {modality_name.upper()}")
 
                 # 步骤 2: 粗粒度检索
-                print(f"[Orchestrator] 步骤 2: 为 SearchEngine 检索出 Top-{initial_top_k} 个候选节点...")
+                print(f"\n[Orchestrator] 步骤 2: 为 SearchEngine 检索出 Top-{initial_top_k} 个候选节点...")
                 retrieved_nodes = self.search_engine.search(
                     query=query, 
                     modality=modality_name, 
@@ -92,7 +94,7 @@ class RAGOrchestrator:
                 if not retrieved_nodes:
                     print("[Orchestrator] 步骤 2.1: SearchEngine 没有返回任何结果. 结束.")
                     break
-                print(f"[Orchestrator] 步骤 2.2: 检索出 {len(retrieved_nodes)} 个节点.")
+                print(f"[Orchestrator] 步骤 2.3: ✅ 检索出 {len(retrieved_nodes)} 个节点.")
                 
                 # 使用 Search Engine 检索出的节点
                 current_nodes = retrieved_nodes
@@ -137,7 +139,7 @@ class RAGOrchestrator:
                     feedback=feedback
                 )
             
-            print(f"[Orchestrator] 步骤 3.3: Seeker 选择了 {len(selected_nodes)} 个节点. \n Reason: {reason}")
+            print(f"[Orchestrator] 步骤 3.3: Seeker 选择了 {len(selected_nodes)} 个节点. \n[Orchestrator] 步骤 3.4: Reason: {reason}")
             current_nodes = selected_nodes # 更新当前正在处理的节点列表
             current_images = selected_images
             # 步骤 4: Inspector 检验与决策

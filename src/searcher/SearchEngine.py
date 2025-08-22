@@ -7,12 +7,6 @@ import numpy as np
 from sklearn.mixture import GaussianMixture
 from typing import List, Dict, Any, Callable
 
-# 导入具体的检索器实现
-# from src.searcher.text_searcher import TextSearcher
-# from src.searcher.image_searcher import ImageSearcher
-# from src.searcher.table_searcher import TableSearcher
-
-# --- GMM 后处理函数 (从 Vidorag 借鉴) ---
 def gmm_filter(results: List[Dict[str, Any]], max_valid_length: int = 10, min_valid_length: int = 5) -> List[Dict[str, Any]]:
     if not results or len(results) < 2:
         return results
@@ -24,7 +18,6 @@ def gmm_filter(results: List[Dict[str, Any]], max_valid_length: int = 10, min_va
     scores_arr = np.array(scores).reshape(-1, 1)
     gmm = GaussianMixture(n_components=2, random_state=0).fit(scores_arr)
     
-    # 假设分数高的那一簇是更相关的
     higher_mean_cluster_label = gmm.means_.argmax()
     labels = gmm.predict(scores_arr)
     
@@ -59,8 +52,6 @@ class AdaptiveRetriever(nn.Module):
         # 5.     results = self.base_searcher.search(query, new_k)
         # 6. return results
 
-
-# --- 核心调度器 ---
 class SearchEngine:
     """
     一个支持懒加载（Lazy Loading）的总调度器。
@@ -74,13 +65,13 @@ class SearchEngine:
             retriever_factories: 一个字典，key是模态名('text', 'image', 'table')，
                                  value是创建对应检索器的无参数函数 (lambda)。
         """
-        print("Initializing the LAZY SearchEngine...")
+        print("[1d] 初始化懒加载 SearchEngine...")
         if not isinstance(retriever_factories, dict):
             raise TypeError("retriever_factories must be a dictionary of callable factories.")
             
         self.retriever_factories = retriever_factories
         self.active_retrievers: Dict[str, Any] = {} # 用于缓存已实例化的检索器
-        print("✅ LAZY SearchEngine is ready. Retrievers will be loaded on first use.")
+        print("[1d] ✅ 懒加载 SearchEngine 已完成. 检索器会在第一次使用时加载.")
 
 
     def _get_retriever(self, modality: str) -> Any:
@@ -97,10 +88,9 @@ class SearchEngine:
         if factory is None:
             raise ValueError(f"No retriever factory found for modality: '{modality}'")
 
-        # 3. 调用工厂函数，真正地创建实例（这是最耗时的一步）
-        print(f"============================================================")
-        print(f" R LAZY LOADING retriever for '{modality.upper()}' NOW... ")
-        print(f"============================================================")
+
+        print(f"[SeachEngine] 步骤 2.1: 加载 '{modality.upper()}' 模态检索器... ")
+
         retriever = factory()
         
         # 4. 将创建好的实例存入缓存，以便下次直接使用
