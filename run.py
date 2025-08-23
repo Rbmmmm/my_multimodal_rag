@@ -46,7 +46,7 @@ def main():
     retriever_factories = {
         "text": lambda: TextSearcher(
             dataset_name='ViDoSeek',
-            mode='bi_encoder',
+            mode='hybrid',
             node_dir_prefix='bge_ingestion' 
         ),
         "image": lambda: ImageSearcher(
@@ -113,8 +113,8 @@ def main():
     # --- 2a. 设置参数 ---
     print("\n[2a] 设置测试参数...")
     DATASET_PATH = "data/ViDoSeek/rag_dataset.json"
-    START_INDEX = 0  # 从第几个样本开始测试
-    NUM_TO_TEST = 5  # 希望测试的样本数量
+    START_INDEX = 8  # 从第几个样本开始测试
+    NUM_TO_TEST = 1  # 希望测试的样本数量
     print("[2a] ✅ 设置完成.")
 
     # --- 2b. 加载测试样本 ---
@@ -171,7 +171,7 @@ def main():
         final_answer = orchestrator.run(
             query=query,
             query_embedding=query_embedding,
-            initial_top_k=10,
+            initial_top_k=3,
             setted_modality_index = modality_index
         )
 
