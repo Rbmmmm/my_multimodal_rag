@@ -1,5 +1,4 @@
 # File: src/agents/seeker_agent.py
-# Final version, strictly adhering to the Vidorag prompt construction logic.
 
 from __future__ import annotations
 import os
@@ -9,22 +8,17 @@ from typing import List, Tuple, Any
 from PIL import Image
 from llama_index.core.schema import NodeWithScore, ImageNode, TextNode
 
-# --- 您需要自行解决的导入 ---
 from src.agent.agent_prompt import seeker_prompt
 from src.agent.map_dict import page_map_dict_normal
 from src.utils.parse_tool import extract_json
 
 class SeekerAgent:
-    """
-    Seeker Agent - VLM-Powered Evidence Selector.
-    This version's prompt engineering logic strictly adheres to the Vidorag reference.
-    """
+
     def __init__(self, vlm: Any, image_base_dir: str):
         self.vlm = vlm
         self.image_base_dir = image_base_dir
-        self.page_map = page_map_dict_normal # Vidorag style page map
+        self.page_map = page_map_dict_normal 
         
-        # Vidorag State Attributes
         self.query: str | None = None
         self.buffer_nodes: List[NodeWithScore] = []
         self.buffer_images: List[str] = []
@@ -45,8 +39,6 @@ class SeekerAgent:
         elif feedback is not None:
             additional_information = self.query + '\n\n## Additional Information\n' + feedback
             prompt = seeker_prompt.replace('{question}', additional_information).replace('{page_map}', self.page_map[len(self.buffer_images)])        
-
-        # --- Vidorag 核心 VLM 调用逻辑 ---
         
         max_retries = 3
         for attempt in range(max_retries):
@@ -59,12 +51,8 @@ class SeekerAgent:
 
                 if reason is None or summary is None or not isinstance(choice, list):
                     raise ValueError("JSON format error: missing fields.")
-                # 注意：Vidorag的buffer是 image_path 列表，我们的buffer是 Node 列表，所以校验长度时用 self.buffer_nodes
                 if any(page < 0 or page >= len(self.buffer_nodes) for page in choice):
                     raise ValueError(f"Index out of bounds for buffer size {len(self.buffer_nodes)}.")
-
-                # Vidorag 的 buffer 在这里会更新，但我们的 Orchestrator 架构不需要 Agent 维护状态
-                # self.buffer_images = [image for image in self.buffer_images if image not in selected_images]
 
                 selected_nodes = [self.buffer_nodes[i] for i in choice]
                 selected_images = [self.buffer_images[i] for i in choice]

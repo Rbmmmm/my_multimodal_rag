@@ -27,8 +27,7 @@ class Qwen_VL_2_5:
             model_name,
             torch_dtype="auto",
             device_map="auto",
-            # attn_implementation="flash_attention_2"
-            attn_implementation="sdpa"  # 修改到这里，使用 PyTorch 内置的、无需额外安装的实现
+            attn_implementation="sdpa"  
         )
         self.processor = AutoProcessor.from_pretrained(model_name)
 
@@ -122,11 +121,9 @@ class LLM:
             except Exception as e:
                 raise RuntimeError(f"DashScope API 调用失败: {e}")
             
-        # ✅ Qwen2.5
         elif "Qwen2.5-VL" in self.model_name:
             return self.model.generate(query, image)
 
-        # ✅ GPT (base64 编码 + chat.completions)
         elif self.model_name.startswith("gpt"):
             content = [{"type": "text", "text": query}]
             for img_path in image:
@@ -143,7 +140,6 @@ class LLM:
             )
             return completion.choices[0].message.content
 
-        # ✅ Gemini (直接传 PIL Image)
         elif self.model_name.startswith("gemini"):
             try:
                 if image:
@@ -161,8 +157,6 @@ class LLM:
         else:
             raise ValueError("Unsupported model in generate()")
 
-
-# ✅ 示例用法
 if __name__ == "__main__":
     llm = LLM("gemini-1.5-pro-latest")
     response = llm.generate(query="Describe this image in 3 words.", image=["your_image.jpg"])

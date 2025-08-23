@@ -31,9 +31,9 @@ def main():
     
     # --- 1a. 设置 API Key 和设备 ---
     print("\n[1a] 设置 vlm API Key...")
-    os.environ['DASHSCOPE_API_KEY'] = "sk-fdb11107afd1435398e9d40958af5e42"
     device = "cuda" if torch.cuda.is_available() else "cpu"
-    print("[1a] ✅ vlm API Key 已成功设置.")
+    if "sk" in os.environ["DASHSCOPE_API_KEY"]:
+        print("[1a] ✅ vlm API Key 已成功设置.")
 
     # --- 1b. 初始化核心模型 ---
     print("\n[1b] 初始化 query 嵌入模型和 vlm 模型...")
@@ -94,9 +94,9 @@ def main():
     print("\n[1g] 初始化 orchestrator...")
     orchestrator = RAGOrchestrator(
         search_engine=search_engine,
-        seeker=seeker_agent,          # <-- 使用已经创建好的实例
-        inspector=inspector_agent,    # <-- 使用已经创建好的实例
-        synthesizer=synthesizer_agent,  # <-- 使用已经创建好的实例
+        seeker=seeker_agent,          
+        inspector=inspector_agent,    
+        synthesizer=synthesizer_agent,  
         gumbel_selector=gumbel_selector
     )
     print("[1g] ✅ Orchestrator 已成功初始化.")
@@ -113,8 +113,8 @@ def main():
     # --- 2a. 设置参数 ---
     print("\n[2a] 设置测试参数...")
     DATASET_PATH = "data/ViDoSeek/rag_dataset.json"
-    START_INDEX = 8  # 从第几个样本开始测试
-    NUM_TO_TEST = 1  # 希望测试的样本数量
+    START_INDEX = 25  # 从第几个样本开始测试
+    NUM_TO_TEST = 10  # 希望测试的样本数量
     print("[2a] ✅ 设置完成.")
 
     # --- 2b. 加载测试样本 ---
@@ -171,7 +171,7 @@ def main():
         final_answer = orchestrator.run(
             query=query,
             query_embedding=query_embedding,
-            initial_top_k=3,
+            initial_top_k=5,
             setted_modality_index = modality_index
         )
 

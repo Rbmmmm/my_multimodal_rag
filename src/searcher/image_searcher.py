@@ -13,7 +13,6 @@ import torch.nn.functional as F
 from llama_index.core.schema import NodeWithScore, ImageNode, TextNode
 from llama_index.embeddings.huggingface import HuggingFaceEmbedding
 
-# --- 您的项目依赖 ---
 from src.searcher.base_searcher import BaseSearcher
 from src.utils.format_converter import nodefile2node
 from src.llms.vl_embedding import VL_Embedding
@@ -80,12 +79,12 @@ class ImageSearcher(BaseSearcher):
         embed_cache_path = os.path.join(self.cache_dir, "embedding_store.pt")
 
         if os.path.exists(node_info_cache_path) and os.path.exists(embed_cache_path):
-            print(f"✅ Found existing VL cache. Loading from '{self.cache_dir}'...")
+            print(f"[ImageSearcher] 步骤 2.2: ✅ Found existing VL cache. Loading from '{self.cache_dir}'...")
             with open(node_info_cache_path, 'r', encoding='utf-8') as f:
                 self.node_info_store = json.load(f)
             self.embedding_store = torch.load(embed_cache_path)
             self.embedding_store = [t.to(self.embed_model.embed_model.device) for t in self.embedding_store]
-            print(f"VL cache loaded. Found {len(self.node_info_store)} documents.")
+            print(f"[ImageSearcher] 步骤 2.2: ✅ VL cache loaded. Found {len(self.node_info_store)} documents.")
         else:
             print(f"VL cache not found at '{self.cache_dir}'. Building a new one...")
             self.node_info_store = []
@@ -120,19 +119,18 @@ class ImageSearcher(BaseSearcher):
         
         recall_nodes = []
         for i in indices.cpu().numpy():
-            # --- 修正: 从 node_info_store 中获取更完整的信息来重建节点 ---
+    
             info = self.node_info_store[i]
             
             node = ImageNode(
                 id_=info.get('id_', f'img_{i}'),
                 text=info.get('text', ''),
-                image_path=info.get('image_path'), # 直接使用已保存的路径
+                image_path=info.get('image_path'), 
                 metadata=info.get('metadata', {})
             )
             recall_nodes.append(node)
         return [NodeWithScore(node=n, score=s.item()) for n, s in zip(recall_nodes, values)]
 
-    # --- OCR Search Mode Methods (保持不变) ---
     def _load_ocr_text(self, stem: str) -> str:
         path = os.path.join(self.ocr_dir, f"{stem}.node")
         if not os.path.exists(path): return ""
@@ -177,12 +175,11 @@ class ImageSearcher(BaseSearcher):
             results.append(NodeWithScore(node=node, score=float(sims[i])))
         return results
 
-    # --- Unified and Helper Methods ---
+
     def _load_nodes_generator(self, node_dir):
         files = [f for f in os.listdir(node_dir) if f.endswith('.node')]
         for file in tqdm(files, desc=f"Streaming nodes from {os.path.basename(node_dir)}"):
             try:
-                # 假设 nodefile2node 返回的是 LlamaIndex Node 对象列表
                 yield from nodefile2node(os.path.join(node_dir, file))
             except Exception as e:
                 print(f"\n❌ Error processing file: {file}\n{e}\n")

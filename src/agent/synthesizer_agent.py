@@ -48,7 +48,7 @@ class SynthesizerAgent:
 
         while True:
             final_answer_response = self.vlm.generate(query=prompt,image=input_images)
-            print(final_answer_response)
+            print("[synthesizer] 给出的答案为:\n", final_answer_response)
             try:
                 final_answer_response_json = extract_json(final_answer_response)
                 reason = final_answer_response_json.get('reason',None)

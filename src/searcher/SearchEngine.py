@@ -25,33 +25,6 @@ def gmm_filter(results: List[Dict[str, Any]], max_valid_length: int = 10, min_va
     
     return filtered_results[:max_valid_length]
 
-
-# --- 自适应检索器的占位实现 (为第二阶段预留) ---
-class AdaptiveRetriever(nn.Module):
-    """
-    可训练的自适应检索器 (STE K值选择)。
-    这是第二阶段要实现的核心模块。
-    """
-    def __init__(self, base_searcher: Any):
-        super().__init__()
-        self.base_searcher = base_searcher
-        
-        # TODO: 定义信心预测器 f_conf, 例如一个小型MLP
-        # self.confidence_predictor = nn.Sequential(...)
-
-    def forward(self, query: Any, initial_k: int):
-        print("Warning: AdaptiveRetriever is a placeholder and will use fixed K for now.")
-        # 第一阶段：直接调用基础检索器，使用固定K值
-        return self.base_searcher.search(query, initial_k)
-        
-        # 第二阶段的完整逻辑:
-        # 1. results = self.base_searcher.search(query, initial_k)
-        # 2. confidence = self.confidence_predictor(query, results)
-        # 3. if confidence < threshold:
-        # 4.     new_k = calculate_new_k(initial_k, confidence)
-        # 5.     results = self.base_searcher.search(query, new_k)
-        # 6. return results
-
 class SearchEngine:
     """
     一个支持懒加载（Lazy Loading）的总调度器。
@@ -76,24 +49,21 @@ class SearchEngine:
 
     def _get_retriever(self, modality: str) -> Any:
         """
-        按需获取或创建检索器实例。这是懒加载的核心。
+        按需获取或创建检索器实例。
         """
-        # 1. 检查是否已经创建过这个检索器（是否在缓存中）
+        
+        print(f"[SeachEngine] 步骤 2.1: 加载 '{modality.upper()}' 模态检索器... ")
+        
         if modality in self.active_retrievers:
-            print(f"[SearchEngine] Using cached '{modality}' retriever.")
+            print(f"[SearchEngine] 步骤 2.2: 使用已经缓存过的 '{modality}' retriever.")
             return self.active_retrievers[modality]
 
-        # 2. 如果没有，就从工厂字典里找到对应的创建函数
         factory = self.retriever_factories.get(modality)
         if factory is None:
             raise ValueError(f"No retriever factory found for modality: '{modality}'")
 
-
-        print(f"[SeachEngine] 步骤 2.1: 加载 '{modality.upper()}' 模态检索器... ")
-
         retriever = factory()
         
-        # 4. 将创建好的实例存入缓存，以便下次直接使用
         self.active_retrievers[modality] = retriever
         return retriever
 
@@ -102,15 +72,13 @@ class SearchEngine:
         """
         执行搜索。它会自动处理检索器的懒加载。
         """
-        # 在真正搜索前，才去获取（或创建）相应的检索器
+
         try:
             retriever = self._get_retriever(modality)
         except Exception as e:
             print(f"❌ Failed to get or create retriever for modality '{modality}': {e}")
             return []
-        
-        # 调用检索器的 search 方法
-        # (确保您所有的检索器都有一个统一的.search()或.retrieve()方法)
+
         if hasattr(retriever, 'search'):
             return retriever.search(query, top_k)
         elif hasattr(retriever, 'retrieve'):

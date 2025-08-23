@@ -1,5 +1,4 @@
 # File: src/orchestrator.py
-# Final version with state management for stateful Agents.
 
 # 可以手动强制选择模态
 
@@ -76,7 +75,9 @@ class RAGOrchestrator:
         # 用初始 top_k 尝试
         for i in range(max_iterations):
             
-            print(f"\n--- Orchestrator  第 {i}/{max_iterations} 轮运行 ---")
+            print(f"\n--- Orchestrator  第 {i+1}/{max_iterations} 轮运行 ---")
+            
+            
             
             if i == 0:    
                 # 步骤 1: 模态选择
@@ -89,7 +90,7 @@ class RAGOrchestrator:
                 print(f"[Orchestrator] 步骤 1: 模态选择 -> {modality_name.upper()}")
 
                 # 步骤 2: 粗粒度检索
-                print(f"\n[Orchestrator] 步骤 2: 为 SearchEngine 检索出 Top-{initial_top_k} 个候选节点...")
+                print(f"\n[Orchestrator] 步骤 2: 开始调用 SearchEngine 检索 Top-{initial_top_k} 个候选节点...")
                 retrieved_nodes = self.search_engine.search(
                     query=query, 
                     modality=modality_name, 
@@ -124,10 +125,14 @@ class RAGOrchestrator:
                             
                     if image_path and os.path.exists(image_path):
                         current_images.append(image_path)
-  
+
+                print("[Orchestrator] 步骤 2.4: 检索出的节点为: ", current_images)
+
+
+
             # 步骤 3: Seeker 精细化寻证
             print("\n[Orchestrator] 步骤 3: 把节点交给 Seeker Agent 进行筛选...")
-            # --- 修正 2: 根据是否是第一次迭代，选择不同的调用方式 ---
+            # 根据是否是第一次迭代，选择不同的调用方式 ---
             if i == 0:
                 # 第一次调用，传入 query 和检索到的节点
                 # seeker agent 已在 run.py 实例化
@@ -142,12 +147,19 @@ class RAGOrchestrator:
                     feedback=feedback
                 )
             
+            if len(selected_nodes) != len(selected_images):
+                print("Seeker返回的 nodes 和 images 数量不一样")
+            
             print(f"[Orchestrator] 步骤 3.3: Seeker 选择了 {len(selected_nodes)} 个节点. \n[Orchestrator] 步骤 3.4: Reason: {reason}")
-            current_nodes = selected_nodes # 更新当前正在处理的节点列表
+            
             current_images = selected_images
+            current_nodes = selected_nodes
+        
+            print("[Orchestrator] 步骤 3.5: 当前的节点为:", current_images)
+            
             # 步骤 4: Inspector 检验与决策
             print("\n[Orchestrator] 步骤 4: 交给 Inspector 来做检验...")
-            status, information, images, confidence = self.inspector.run(
+            status, information, images, nodes, confidence = self.inspector.run(
                 query=query,
                 nodes=current_nodes,
                 image_paths=current_images
@@ -190,9 +202,9 @@ class RAGOrchestrator:
             # top_k = calculate_func(initial_top_k) 占位，后续用论文公式实现
             top_k = 10
             
-            print(f"[Orchestrator] 扩展 Top-K 从 {initial_top_k} 到 {top_k} 并重新检索...")
+            print(f"\n[Orchestrator] 扩展 Top-K 从 {initial_top_k} 到 {top_k} 并重新检索...")
             
-            print(f"\n--- Orchestrator  第 {i}/{max_iterations} 轮运行 ---")
+            print(f"\n--- Orchestrator  第 {i+1}/{max_iterations} 轮运行 ---")
             
             if i == 0:    
                 # 步骤 2: 粗粒度检索
