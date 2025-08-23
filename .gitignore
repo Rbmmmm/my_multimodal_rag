@@ -4,7 +4,6 @@ data/
 .cache/
 .llama_index_storage/
 .ragatouille/
-checkpoints/
 .image_cache/
 
 .vscode/
