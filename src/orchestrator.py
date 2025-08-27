@@ -52,7 +52,8 @@ class RAGOrchestrator:
             query_embedding: torch.Tensor, 
             max_iterations: int = 2,
             initial_top_k: int = 10,
-            setted_modality_index : int = None
+            setted_modality_index : int = None,
+            pre_retrieved_nodes: Optional[List] = None,
            ) -> str:
         
         print("\n" + "="*20 + " RAG 流程开始 " + "="*20)
@@ -91,11 +92,14 @@ class RAGOrchestrator:
 
                 # 步骤 2: 粗粒度检索
                 print(f"\n[Orchestrator] 步骤 2: 开始调用 SearchEngine 检索 Top-{initial_top_k} 个候选节点...")
-                retrieved_nodes = self.search_engine.search(
+                if pre_retrieved_nodes:
+                    retrieved_nodes = pre_retrieved_nodes
+                else:
+                    retrieved_nodes = self.search_engine.search(
                     query=query, 
                     modality=modality_name, 
                     top_k=initial_top_k
-                )   
+                    )   
                 if not retrieved_nodes:
                     print("[Orchestrator] 步骤 2.1: SearchEngine 没有返回任何结果. 结束.")
                     return "Not retrieved any nodes"

@@ -1,14 +1,15 @@
-import os
-import json
-import torch
-import argparse
-from tqdm import tqdm
-from concurrent.futures import ThreadPoolExecutor, as_completed
+# File: eval.py (版本 3.1 - 补全初始化代码的最终版)
 
-# ===============================================================
-# 1. 导入您项目的组件和原始 eval 脚本的依赖
-# ===============================================================
-# 导入您的项目组件
+import os
+import torch
+import json
+from tqdm import tqdm
+import numpy as np
+
+# --------------------------------------------------------------------------
+# 步骤 0: 导入您项目中的模块和新的评估工具
+# --------------------------------------------------------------------------
+# --- 确保您的项目组件可以被正确导入 ---
 from src.searcher.text_searcher import TextSearcher
 from src.searcher.image_searcher import ImageSearcher
 from src.searcher.table_searcher import TableSearcher
@@ -19,188 +20,183 @@ from src.agent.synthesizer_agent import SynthesizerAgent
 from src.models.gumbel_selector import GumbelModalSelector
 from src.orchestrator import RAGOrchestrator
 from src.llms.llm import LLM
-from src.utils.embedding_utils import QueryEmbedder, get_query_embedding
-
-# 导入原始 eval 脚本的依赖
-from src.llms.evaluator import Evaluator # 假设您已将 ViDoRAG 的 evaluator.py 放在 llms/ 目录下
-from src.utils.overall_evaluator import eval_search, eval_search_type_wise # 假设评估函数在 utils/ 目录下
-
+from src.utils.embedding_utils import QueryEmbedder, get_query_embedding # <--- 确保 get_query_embedding 已导入
 from llama_index.core import Settings
+
+# --- 导入您提供的、模块化的评估器 ---
+from src.llms.evaluator import Evaluator
+from src.utils.overall_evaluator import eval_search, eval_search_type_wise
+
 Settings.llm = None
 
+# ==========================================================================
+# 步骤 1: 在这里配置您的评估任务
+# ==========================================================================
+CONFIG = {
+    "DATASET_PATH": "data/ViDoSeek/rag_dataset.json",
+    "OUTPUT_DIR": "eval_results/run_modular_test_final",
+    "START_INDEX": 0,
+    "NUM_TO_TEST": 20,
+    "TOP_K": 5,
+}
 
-class MMRAG:
-    """
-    评估框架主类，结构和逻辑与您提供的 ViDoRAG eval.py 保持一致。
-    仅修改了初始化和 RAG 调用部分以适配您的项目。
-    """
-    def __init__(self, args):
-        # --- 基础配置 ---
-        self.args = args
-        self.device = "cuda" if torch.cuda.is_available() else "cpu"
-        self.dataset_dir = os.path.join('./data', args.dataset)
-        self.results_dir = os.path.join(self.dataset_dir, "results_final") # 使用新目录以区分
-        os.makedirs(self.results_dir, exist_ok=True)
+# --------------------------------------------------------------------------
+# 步骤 2: 主评估函数
+# --------------------------------------------------------------------------
+def main():
+    """主函数，加载组件，循环处理样本，最后调用外部评估器进行汇总。"""
+    # ==========================================================================
+    # 2.1: 初始化所有系统组件
+    # ==========================================================================
+    print("="*30)
+    print("步骤 1: 初始化所有系统组件")
 
-        # ==========================================================================
-        # 步骤 1: 初始化所有系统组件 (适配您的项目)
-        # ==========================================================================
-        print("="*30)
-        print("步骤 1: 初始化所有系统组件")
+    # --- START: 补全的初始化代码 ---
+    # 这部分是之前版本中被省略的，现在已完整添加
+    
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    if "sk" in os.environ["DASHSCOPE_API_KEY"]:
+        print("✅ vlm API Key 已成功设置.")
 
-        # --- 1a. 初始化模型 ---
-        print("\n[1a] 初始化嵌入和 VLM 模型...")
-        self.query_embedder = QueryEmbedder(model_name=args.embed_model_name, device=self.device)
-        self.vlm = LLM(args.generate_vlm)
-        self.evaluator = Evaluator() # 使用同一个 VLM 进行评估
-        print("[1a] ✅ 模型初始化完成.")
+    # 初始化嵌入模型和VLM
+    print("\n[Init] 初始化嵌入模型和 VLM...")
+    query_embedder = QueryEmbedder(model_name="BAAI/bge-m3", device=device)
+    vlm = LLM("qwen-vl-max")
+    print("✅ 嵌入模型和 VLM 初始化成功.")
 
-        # --- 1b. 初始化 SearchEngine ---
-        print("\n[1b] 初始化 SearchEngine...")
-        retriever_factories = {
-            "text": lambda: TextSearcher(dataset_name=args.dataset, mode='bi_encoder'),
-            "image": lambda: ImageSearcher(dataset_name=args.dataset, mode='vl_search'),
-            "table": lambda: TableSearcher(dataset_name=args.dataset, mode='vl_search')
-        }
-        self.search_engine = SearchEngine(retriever_factories=retriever_factories)
-        print("[1b] ✅ SearchEngine 初始化完成.")
+    # 创建检索器工厂
+    print("\n[Init] 创建检索器工厂...")
+    retriever_factories = {
+        "text": lambda: TextSearcher(dataset_name='ViDoSeek', mode='hybrid', node_dir_prefix='bge_ingestion'),
+        "image": lambda: ImageSearcher(dataset_name='ViDoSeek', mode='vl_search', vl_node_dir_prefix='colqwen_ingestion'),
+        "table": lambda: TableSearcher(dataset_name='ViDoSeek', mode='vl_search', vl_node_dir_prefix='colqwen_ingestion')
+    }
+    search_engine = SearchEngine(retriever_factories=retriever_factories)
+    print("✅ 检索器工厂创建成功.")
 
-        # --- 1c. 初始化 Gumbel 选择器 ---
-        print("\n[1c] 初始化 Gumbel 模态选择器...")
-        gumbel_selector = GumbelModalSelector(
-            input_dim=self.query_embedder.out_dim, num_choices=3, hidden_dim=256
-        ).to(self.device)
-        if os.path.exists(args.selector_ckpt):
-            gumbel_selector.load_state_dict(torch.load(args.selector_ckpt, map_location=self.device))
-            print(f"[1c] ✅ Gumbel Selector 权重从 {args.selector_ckpt} 加载成功.")
-        else:
-            print(f"[1c] ℹ️ 未找到 Gumbel Selector 权重，将使用随机初始化.")
-        gumbel_selector.eval()
+    # 初始化Gumbel模态选择器
+    print("\n[Init] 初始化 Gumbel 模态选择器...")
+    gumbel_selector = GumbelModalSelector(input_dim=query_embedder.out_dim, num_choices=3).to(device).eval()
+    ckpt_path = "checkpoints/modal_selector_best.pt"
+    if os.path.exists(ckpt_path):
+        gumbel_selector.load_state_dict(torch.load(ckpt_path, map_location=device))
+        print(f"✅ 成功从 {ckpt_path} 加载 Gumbel Selector 权重.")
+    else:
+        print("ℹ️ 未找到 Gumbel Selector 检查点，使用随机初始化.")
 
-        # --- 1d. 初始化 Agents 和 Orchestrator ---
-        print("\n[1d] 初始化 Agents 和 Orchestrator...")
-        image_base_dir = f"data/{args.dataset}/img"
-        seeker_agent = SeekerAgent(vlm=self.vlm, image_base_dir=image_base_dir)
-        inspector_agent = InspectorAgent(vlm=self.vlm, image_base_dir=image_base_dir, reranker_model_name="BAAI/bge-reranker-large")
-        synthesizer_agent = SynthesizerAgent(vlm=self.vlm, image_base_dir=image_base_dir)
+    # 初始化Agents
+    print("\n[Init] 初始化所有 Agents...")
+    image_base_dir = "data/ViDoSeek/img" 
+    seeker_agent = SeekerAgent(vlm=vlm, image_base_dir=image_base_dir)
+    inspector_agent = InspectorAgent(vlm=vlm, image_base_dir=image_base_dir, reranker_model_name="BAAI/bge-reranker-large")
+    synthesizer_agent = SynthesizerAgent(vlm=vlm, image_base_dir=image_base_dir)
+    print("✅ 所有 Agents 初始化成功.")
+
+    # 初始化Orchestrator
+    print("\n[Init] 初始化 Orchestrator...")
+    orchestrator = RAGOrchestrator(
+        search_engine=search_engine,
+        seeker=seeker_agent,
+        inspector=inspector_agent,
+        synthesizer=synthesizer_agent,
+        gumbel_selector=gumbel_selector
+    )
+    print("✅ Orchestrator 初始化成功.")
+    
+    # --- END: 补全的初始化代码 ---
+    
+    # 初始化您提供的 Evaluator
+    evaluator = Evaluator()
+    
+    print("\n✅ 所有组件已就位.")
+    print("="*30)
+
+    # ==========================================================================
+    # 2.2: 批量运行并收集结果
+    # ==========================================================================
+    print("\n步骤 2: 开始批量运行并收集结果")
+    
+    with open(CONFIG["DATASET_PATH"], "r", encoding="utf-8") as f:
+        examples = json.load(f)["examples"]
+
+    all_results = []
+    start_index = CONFIG["START_INDEX"]
+    end_index = min(start_index + CONFIG["NUM_TO_TEST"], len(examples))
+    
+    for i in tqdm(range(start_index, end_index), desc="处理样本"):
+        sample = examples[i]
+        query = sample.get("query")
+        if not query: continue
+
+        # --- 运行完整的RAG流程 ---
+        query_embedding = get_query_embedding(query_embedder, query)
         
-        self.orchestrator = RAGOrchestrator(
-            search_engine=self.search_engine, seeker=seeker_agent, inspector=inspector_agent,
-            synthesizer=synthesizer_agent, gumbel_selector=gumbel_selector
+        # 为了评估检索，我们需要先独立获取检索结果
+        modality_index = orchestrator._choose_modality(query_embedding)
+        modality_name = orchestrator.modality_map.get(modality_index, "unknown")
+        retrieved_nodes = search_engine.search(
+            query=query, modality=modality_name, top_k=CONFIG["TOP_K"]
         )
-        print("[1d] ✅ Agents 和 Orchestrator 初始化完成.")
         
-        # ==========================================================================
-        # 步骤 2: 根据实验类型设置评估函数和输出文件名
-        # ==========================================================================
-        print("\n步骤 2: 配置实验类型")
-        if args.experiment_type == 'retrieval_infer':
-            self.eval_func = self.retrieval_infer
-            self.output_file_name = f'retrieval_{args.embed_model_name}.jsonl'
-        elif args.experiment_type == 'vidorag':
-            self.eval_func = self.vidorag_infer
-            self.output_file_name = f'vidorag_{args.generate_vlm}.jsonl'
-        else:
-            raise ValueError(f"不支持的实验类型: {args.experiment_type}")
+        # 运行完整的Orchestrator来获取最终答案
+        final_answer = orchestrator.run(
+            query=query,
+            query_embedding=query_embedding,
+            initial_top_k=CONFIG["TOP_K"]
+        )
 
-        self.output_file_path = os.path.join(self.results_dir, self.output_file_name.replace("/", "-"))
-        print(f"✅ 实验类型: '{args.experiment_type}' | 输出文件: {self.output_file_path}")
-        print("="*30)
-
-    def retrieval_infer(self, sample):
-        query = sample['query']
-        # 注意：这里的 search 逻辑可能需要根据您的 SearchEngine 实现进行微调
-        # 这里假设 search 直接返回 LlamaIndex 的 NodeWithScore 列表
-        retrieved_nodes = self.search_engine.search(query, modality='text', top_k=self.args.topk) # 默认用 text 检索
+        # --- 使用您的 Evaluator 进行答案评分 ---
+        eval_result = evaluator.evaluate(
+            query=query,
+            reference_answer=sample.get("reference_answer", ""),
+            generated_answer=final_answer
+        )
         
-        # 将检索结果转换为可序列化的字典格式
+        # --- 将结果附加到原始样本中，以便后续评估 ---
         sample['recall_results'] = {
             "source_nodes": [node.to_dict() for node in retrieved_nodes]
         }
-        return sample
-
-    def vidorag_infer(self, sample):
-        query = sample['query']
-        print(f"\nProcessing query: {query}")
-        try:
-            query_embedding = get_query_embedding(self.query_embedder, query)
-            answer = self.orchestrator.run(
-                query=query,
-                query_embedding=query_embedding,
-                initial_top_k=self.args.topk
-            )
-            # 由于 Orchestrator 内部封装了检索，我们在这里无法直接获取召回的节点
-            # 评估将主要关注最终答案的质量
-            sample['recall_results'] = {"source_nodes": []} # 留空或填充伪数据
-        except Exception as e:
-            print(f"处理查询时发生错误: {e}")
-            return None
+        sample['eval_result'] = eval_result
         
-        # 使用 Evaluator 评估答案
-        sample['eval_result'] = self.evaluator.evaluate(query, sample['reference_answer'], str(answer))
-        sample['response'] = answer
-        return sample
+        all_results.append(sample)
 
-    def eval_dataset(self):
-        rag_dataset_path = os.path.join(self.dataset_dir, self.args.query_file)
-        with open(rag_dataset_path, "r", encoding="utf-8") as f:
-            data = json.load(f)['examples']
-        
-        # 断点续评逻辑
-        if os.path.exists(self.output_file_path):
-            print("ℹ️ 发现已存在的评估结果文件，将进行断点续评...")
-            with open(self.output_file_path, "r", encoding="utf-8") as f:
-                completed_uids = {json.loads(line)["uid"] for line in f}
-            data = [item for item in data if item['uid'] not in completed_uids]
-            print(f"✅ 已完成 {len(completed_uids)} 个样本，剩余 {len(data)} 个待评估。")
+    # ==========================================================================
+    # 2.3: 调用外部评估器进行汇总计算
+    # ==========================================================================
+    print("\n" + "="*30)
+    print("所有样本处理完毕，调用评估器进行汇总...")
 
-        # 单线程或多线程处理
-        if self.args.workers_num == 1:
-            for item in tqdm(data, desc="Processing Samples"):
-                result = self.eval_func(item)
-                if result:
-                    with open(self.output_file_path, "a", encoding="utf-8") as f:
-                        f.write(json.dumps(result, ensure_ascii=False) + "\n")
-        else:
-            with ThreadPoolExecutor(max_workers=self.args.workers_num) as executor:
-                futures = [executor.submit(self.eval_func, item) for item in data]
-                for future in tqdm(as_completed(futures), total=len(futures), desc="Processing Samples"):
-                    result = future.result()
-                    if result:
-                        with open(self.output_file_path, "a", encoding="utf-8") as f:
-                            f.write(json.dumps(result, ensure_ascii=False) + "\n")
+    overall_summary = eval_search(all_results)
+    type_wise_summary = eval_search_type_wise(all_results)
     
-    def eval_overall(self):
-        print("\n📊 计算整体评估指标...")
-        data = [json.loads(line) for line in open(self.output_file_path, "r", encoding="utf-8")]
-        results = eval_search(data) # 依赖您的评估函数
-        with open(self.output_file_path.replace(".jsonl", "_eval.json"), "w", encoding="utf-8") as f:
-            json.dump(results, f, indent=2, ensure_ascii=False)
-        print(f"✅ 整体评估指标已保存。")
+    print("\n[整体评估摘要]:")
+    print(json.dumps(overall_summary, indent=4, ensure_ascii=False))
     
-    def eval_overall_type_wise(self):
-        print("\n📊 计算分类别评估指标...")
-        data = [json.loads(line) for line in open(self.output_file_path, "r", encoding="utf-8")]
-        results = eval_search_type_wise(data) # 依赖您的评估函数
-        with open(self.output_file_path.replace(".jsonl", "_eval_type_wise.json"), "w", encoding="utf-8") as f:
-            json.dump(results, f, indent=2, ensure_ascii=False)
-        print(f"✅ 分类别评估指标已保存。")
+    print("\n[分类别评估摘要]:")
+    print(json.dumps(type_wise_summary, indent=4, ensure_ascii=False))
 
-def arg_parse():
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--dataset", type=str, default='ViDoSeek', help="The name of dataset")
-    parser.add_argument("--query_file", type=str, default='rag_dataset.json', help="The name of anno_file")
-    parser.add_argument("--experiment_type", type=str, default='vidorag', help="The type of experiment ('vidorag' or 'retrieval_infer')")
-    parser.add_argument("--embed_model_name", type=str, default='BAAI/bge-m3', help="The name of embedding model")
-    parser.add_argument("--workers_num", type=int, default=1, help="The number of workers")
-    parser.add_argument("--topk", type=int, default=10, help="The number of topk")
-    parser.add_argument("--generate_vlm", type=str, default='qwen-vl-max', help="The name of VLM model")
-    parser.add_argument("--selector_ckpt", type=str, default="checkpoints/modal_selector_best.pt", help="Path to Gumbel Selector checkpoint.")
-    return parser.parse_args()
+    # ==========================================================================
+    # 2.4: 保存所有结果文件
+    # ==========================================================================
+    output_dir = CONFIG["OUTPUT_DIR"]
+    os.makedirs(output_dir, exist_ok=True)
+    
+    details_path = os.path.join(output_dir, "results_details.jsonl")
+    with open(details_path, "w", encoding="utf-8") as f:
+        for res in all_results:
+            f.write(json.dumps(res, ensure_ascii=False) + "\n")
+    print(f"\n✅ 详细结果已保存至: {details_path}")
 
-if __name__ == "__main__":
-    args = arg_parse()
-    mmrag = MMRAG(args)
-    mmrag.eval_dataset()
-    mmrag.eval_overall()
-    mmrag.eval_overall_type_wise()
+    summary_path = os.path.join(output_dir, "results_summary.json")
+    with open(summary_path, "w", encoding="utf-8") as f:
+        json.dump(overall_summary, f, indent=4, ensure_ascii=False)
+    print(f"✅ 整体摘要已保存至: {summary_path}")
+
+    type_wise_path = os.path.join(output_dir, "results_type_wise.json")
+    with open(type_wise_path, "w", encoding="utf-8") as f:
+        json.dump(type_wise_summary, f, indent=4, ensure_ascii=False)
+    print(f"✅ 分类别摘要已保存至: {type_wise_path}")
+
+
+if __name__ == '__main__':
+    main()

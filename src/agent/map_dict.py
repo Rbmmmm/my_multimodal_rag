@@ -41,7 +41,8 @@ page_map_dict = {
     4: "The first row, the first one is number 0, the second one is number 1. The second row, the first one is number 2, the second one is number 3. The image numbers are from 0-3!",
     3: "The first one is number 0, the second one is number 1. The second row, the first one is number 2. The image numbers are from 0-2!",
     2: "The left one is number 0, the right one is number 1. The image numbers are from 0-1!",
-    1: "Your choice is empty as [] or this image as [0]!"
+    1: "Your choice is empty as [] or this image as [0]!",
+    0: "No more images can be selected."
 }
 
 page_map_dict_normal = {
@@ -64,5 +65,6 @@ page_map_dict_normal = {
     4: "The first image number is 0, the second image number is 1, the third image number is 2, the fourth image number is 3. The image numbers are from 0-3!",
     3: "The first image number is 0, the second image number is 1, the third image number is 2. The image numbers are from 0-2!",
     2: "The first image number is 0, the second image number is 0. The image numbers are from 0-1!",
-    1: "Your choice is empty as [] or this image as [0]!"
+    1: "Your choice is empty as [] or this image as [0]!",
+    0: "No more images can be selected."
 }
